@@ -17,10 +17,17 @@ const BASE_SECURITY_HEADERS = Object.freeze({
 });
 
 /** True when the caller presented the admin bearer token in constant time. */
-function hasAdminToken(req) {
-  const match = /^Bearer\s+(.+)$/i.exec(req.headers?.['authorization'] || '');
-  if (!match) return false;
-  return safeEqual(match[1].trim(), getAdminToken());
+function hasAdminToken(req, allowQueryToken = false) {
+  const match = /^Bearer\s+(.+)$/i.exec(req.headers?.["authorization"] || "");
+  if (match && safeEqual(match[1].trim(), getAdminToken())) return true;
+  if (allowQueryToken && (req.method === "GET" || !req.method)) {
+    try {
+      const u = new URL(req.url || "/", "http://localhost");
+      const q = u.searchParams.get("token");
+      if (q && safeEqual(q.trim(), getAdminToken())) return true;
+    } catch {}
+  }
+  return false;
 }
 
 /**
@@ -121,19 +128,23 @@ export class AdminServer {
       // Merged Control Center Supervisor Proxy: /api/services/* and /api/logs/stream -> Control Center on port 8090
       // Relaying this unauthenticated would republish process control and every service's
       // stdout/stderr on the internet-facing admin host, so the admin token is required.
-      if (pathname.startsWith('/api/services') || pathname === '/api/logs/stream') {
-        if (!hasAdminToken(req)) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+      if (pathname.startsWith("/api/services") || pathname === "/api/logs/stream") {
+        if (!hasAdminToken(req, pathname === "/api/logs/stream")) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unauthorized", code: "AUTH_REQUIRED" }));
           return;
         }
         const ccPort = Number(process.env.CONTROL_CENTER_PORT || 8090);
+        const forwardHeaders = sanitizedForwardHeaders(req, `localhost:${ccPort}`);
+        if (!forwardHeaders.authorization && !forwardHeaders.Authorization) {
+          forwardHeaders.authorization = `Bearer ${getAdminToken()}`;
+        }
         const proxyReq = http.request({
-          hostname: '127.0.0.1',
+          hostname: "127.0.0.1",
           port: ccPort,
           path: req.url,
           method: req.method,
-          headers: sanitizedForwardHeaders(req, `localhost:${ccPort}`)
+          headers: forwardHeaders
         }, (proxyRes) => {
           res.writeHead(proxyRes.statusCode, proxyRes.headers);
           proxyRes.pipe(res);

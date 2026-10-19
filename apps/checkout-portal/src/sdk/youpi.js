@@ -760,6 +760,7 @@
     document.addEventListener('click', function (e) {
       const btn = e.target && e.target.closest && e.target.closest('[data-youpi-pay]');
       if (btn) {
+        if (btn.getAttribute('onclick')) return;
         e.preventDefault();
         YoupiCheckout.handleButtonClick(btn);
       }

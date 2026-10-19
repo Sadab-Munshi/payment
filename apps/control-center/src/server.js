@@ -20,10 +20,17 @@ const BASE_SECURITY_HEADERS = Object.freeze({
 const PUBLIC_PATHS = new Set(['/health', '/', '/dashboard']);
 
 /** True when the caller presented the admin bearer token in constant time. */
-function hasAdminToken(req) {
-  const match = /^Bearer\s+(.+)$/i.exec(req.headers?.['authorization'] || '');
-  if (!match) return false;
-  return safeEqual(match[1].trim(), getAdminToken());
+function hasAdminToken(req, allowQueryToken = false) {
+  const match = /^Bearer\s+(.+)$/i.exec(req.headers?.["authorization"] || "");
+  if (match && safeEqual(match[1].trim(), getAdminToken())) return true;
+  if (allowQueryToken && (req.method === "GET" || !req.method)) {
+    try {
+      const u = new URL(req.url || "/", "http://localhost");
+      const q = u.searchParams.get("token");
+      if (q && safeEqual(q.trim(), getAdminToken())) return true;
+    } catch {}
+  }
+  return false;
 }
 
 export class ControlCenterServer {
@@ -84,7 +91,7 @@ export class ControlCenterServer {
       // Every remaining route controls processes, streams service logs or exposes internal
       // state. Without a token these are a remote denial-of-service and a log-exfiltration
       // primitive, so the admin bearer is required.
-      if (!PUBLIC_PATHS.has(pathname) && !hasAdminToken(req)) {
+      if (!PUBLIC_PATHS.has(pathname) && !hasAdminToken(req, pathname === '/api/logs/stream')) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
         return;

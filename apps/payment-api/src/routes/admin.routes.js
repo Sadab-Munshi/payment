@@ -1131,6 +1131,9 @@ export function registerAdminRoutes(server, ctx) {
       return;
     }
 
+    if (berry.getStatus() === "DISCONNECTED" && !berry.isInitializing && berry.shouldKeepPairingAlive !== false && process.env.NODE_ENV !== "test") {
+      berry.initialize().catch(() => {});
+    }
     const info = berry.getClientInfo();
     let qr = berry.getQrCode();
     if (!qr && berry.client?.lastQr) {
