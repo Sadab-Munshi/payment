@@ -2,36 +2,79 @@ import { PaymentObserverClient } from '@youpi/observer-sdk';
 import { getObserverToken } from '@youpi/common';
 import { BankEmailParser } from './parser.js';
 
-function extractBodyFromGmailPayload(payload) {
+function decodeHtmlEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#8377;|&#x20b9;|&inr;/gi, '₹')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)));
+}
+
+/**
+ * Recursively extracts text/plain and text/html content from nested Gmail MIME payloads
+ * (`multipart/mixed` -> `multipart/related` -> `multipart/alternative` -> `text/plain` / `text/html`).
+ */
+export function extractBodyFromGmailPayload(payload) {
   if (!payload) return '';
-  if (payload.body?.data) {
-    try {
-      return Buffer.from(payload.body.data, 'base64url').toString('utf8');
-    } catch {}
+
+  const plainParts = [];
+  const htmlParts = [];
+  const otherParts = [];
+
+  function walk(node) {
+    if (!node) return;
+    const mime = (node.mimeType || '').toLowerCase();
+
+    if (node.body?.data) {
+      try {
+        const decoded = Buffer.from(node.body.data, 'base64url').toString('utf8');
+        if (mime === 'text/plain') {
+          plainParts.push(decoded);
+        } else if (mime === 'text/html') {
+          const stripped = decodeHtmlEntities(
+            decoded
+              .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+              .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+          ).trim();
+          if (stripped) htmlParts.push(stripped);
+        } else if (!mime.startsWith('image/') && !mime.startsWith('application/')) {
+          otherParts.push(decoded);
+        }
+      } catch {}
+    }
+
+    if (Array.isArray(node.parts)) {
+      for (const child of node.parts) {
+        walk(child);
+      }
+    }
   }
-  if (Array.isArray(payload.parts)) {
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/plain' && part.body?.data) {
-        try {
-          return Buffer.from(part.body.data, 'base64url').toString('utf8');
-        } catch {}
-      }
-    }
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/html' && part.body?.data) {
-        try {
-          const html = Buffer.from(part.body.data, 'base64url').toString('utf8');
-          return html.replace(/<[^>]+>/g, ' ');
-        } catch {}
-      }
-    }
-    for (const part of payload.parts) {
-      if (part.body?.data) {
-        try {
-          return Buffer.from(part.body.data, 'base64url').toString('utf8');
-        } catch {}
-      }
-    }
+
+  walk(payload);
+
+  if (plainParts.length > 0 && htmlParts.length > 0) {
+    // Combine both plain and stripped HTML if plain text is a short stub
+    const plainJoined = decodeHtmlEntities(plainParts.join('\n')).trim();
+    const htmlJoined = htmlParts.join('\n').trim();
+    return plainJoined.length >= htmlJoined.length * 0.5
+      ? plainJoined
+      : `${plainJoined}\n${htmlJoined}`.trim();
+  }
+  if (plainParts.length > 0) {
+    return decodeHtmlEntities(plainParts.join('\n')).trim();
+  }
+  if (htmlParts.length > 0) {
+    return htmlParts.join('\n').trim();
+  }
+  if (otherParts.length > 0) {
+    return decodeHtmlEntities(otherParts.join('\n')).trim();
   }
   return '';
 }
@@ -45,9 +88,9 @@ export class GmailPoller {
    * }} options
    */
   constructor(options = {}) {
-    this.apiBaseUrl = options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://localhost:6100';
+    this.apiBaseUrl = (options.apiBaseUrl || process.env.BASE_PAYMENT_API_URL || 'http://127.0.0.1:6100').replace(/\/+$/, '');
     this.receivingAccountId = options.receivingAccountId || '00000000-0000-0000-0000-000000000002';
-    this.pollIntervalMs = options.pollIntervalMs || Number(process.env.GMAIL_POLL_INTERVAL_MS || 5000);
+    this.pollIntervalMs = options.pollIntervalMs || Number(process.env.GMAIL_POLL_INTERVAL_MS || 4000);
     this.observerClient = new PaymentObserverClient({
       apiBaseUrl: this.apiBaseUrl,
       sourceName: 'GMAIL'
@@ -69,7 +112,10 @@ export class GmailPoller {
 
   async fetchCredentialsFromPaymentApi() {
     try {
-      const res = await fetch(`${this.apiBaseUrl}/api/v1/admin/gmail/credentials`, { headers: { Authorization: `Bearer ${getObserverToken()}` } });
+      const res = await fetch(`${this.apiBaseUrl}/api/v1/admin/gmail/credentials`, {
+        headers: { Authorization: `Bearer ${getObserverToken()}` },
+        signal: AbortSignal.timeout(4000)
+      });
       if (res.ok) {
         const data = await res.json();
         const conf = data.gmailConfig || data;
@@ -111,6 +157,8 @@ export class GmailPoller {
       });
 
       if (!tokenRes.ok) {
+        const errText = await tokenRes.text().catch(() => '');
+        console.warn(`[Gmail Observer] OAuth token refresh failed (${tokenRes.status}): ${errText}`);
         return null;
       }
 
@@ -124,13 +172,28 @@ export class GmailPoller {
     }
   }
 
-  async resolveActiveReceivingAccount() {
+  /**
+   * Resolves the active receiving account from Payment API's `/api/v1/pollers/active-window`.
+   * Passes the observer Bearer token and prefers a session matching `amountPaise` when available.
+   */
+  async resolveActiveReceivingAccount(amountPaise) {
     try {
-      const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, { signal: AbortSignal.timeout(1000) });
+      const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, {
+        headers: { Authorization: `Bearer ${getObserverToken()}` },
+        signal: AbortSignal.timeout(2000)
+      });
       if (res.ok) {
         const data = await res.json();
-        if (data.sessions && data.sessions.length > 0) {
-          return data.sessions[0].receivingAccountId;
+        const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        if (sessions.length > 0) {
+          if (amountPaise !== undefined && amountPaise !== null) {
+            const targetPaise = Number(amountPaise);
+            const exact = sessions.find(s => Number(s.amountPaise) === targetPaise && s.receivingAccountId);
+            if (exact) return exact.receivingAccountId;
+          }
+          if (sessions[0].receivingAccountId) {
+            return sessions[0].receivingAccountId;
+          }
         }
       }
     } catch {}
@@ -138,8 +201,8 @@ export class GmailPoller {
   }
 
   /**
-   * Ingests an email directly (e.g. from webhook, push notification, or manual poll).
-   * @param {{ subject: string, body: string, date?: string | Date, from?: string, id?: string }} email
+   * Ingests an email directly (e.g. from Gmail API poll, sweep, or test injection).
+   * @param {{ subject: string, body: string, date?: string | Date, from?: string, id?: string, internalDate?: number }} email
    */
   async processEmail(email) {
     let parsed = null;
@@ -149,7 +212,7 @@ export class GmailPoller {
 
     let targetAccountId = this.receivingAccountId;
     try {
-      const activeAcct = await this.resolveActiveReceivingAccount();
+      const activeAcct = await this.resolveActiveReceivingAccount(parsed?.amountPaise);
       if (activeAcct) targetAccountId = activeAcct;
     } catch {}
 
@@ -179,6 +242,11 @@ export class GmailPoller {
       });
 
       this.observedCount++;
+      if (parsed?.amount) {
+        console.log(
+          `[Gmail Observer] Processed bank email (amount=₹${parsed.amount}, utr=${parsed.bankReferenceNumber || 'N/A'}, acct=${targetAccountId}, attributed=${Boolean(result?.attribution?.attributed || result?.pipeline?.success)})`
+        );
+      }
       return result;
     } catch (err) {
       console.error('[Gmail Observer] Submission failed:', err.message);
@@ -215,11 +283,17 @@ export class GmailPoller {
       const accessToken = await this.getAccessToken();
       if (!accessToken) return;
 
-      const query = encodeURIComponent('subject:(credit OR credited OR received OR upi OR deposit OR alert)');
-      const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${query}`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-        signal: AbortSignal.timeout(8000)
-      });
+      // Search both subject and body for recent bank/UPI credit alerts (covers Kotak, HDFC, ICICI, SBI, Axis, etc.)
+      const query = encodeURIComponent(
+        'newer_than:1d (credited OR credit OR received OR upi OR deposit OR alert OR transaction OR kotak OR inr OR rs)'
+      );
+      const listRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${query}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(8000)
+        }
+      );
 
       if (!listRes.ok) {
         if (listRes.status === 401) {
@@ -230,35 +304,70 @@ export class GmailPoller {
 
       const listData = await listRes.json();
       const messages = listData.messages || [];
+      const freshnessCutoffMs = Date.now() - 30 * 60 * 1000; // Only ingest emails from last 30 minutes
 
-      for (const m of messages) {
+      // Process oldest-to-newest among recent messages
+      for (const m of [...messages].reverse()) {
         if (this.processedMessageIds.has(m.id)) continue;
 
         try {
-          const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` },
-            signal: AbortSignal.timeout(8000)
-          });
+          const msgRes = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(8000)
+            }
+          );
           if (!msgRes.ok) continue;
 
           const msgData = await msgRes.json();
+          const internalMs = msgData.internalDate ? Number(msgData.internalDate) : Date.now();
+
+          // Skip stale historical emails older than 30 minutes so startup doesn't replay old alerts
+          if (internalMs < freshnessCutoffMs) {
+            this.processedMessageIds.add(m.id);
+            continue;
+          }
+
           const headers = msgData.payload?.headers || [];
           const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
           const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
           const dateStr = headers.find(h => h.name.toLowerCase() === 'date')?.value || '';
-          const body = extractBodyFromGmailPayload(msgData.payload) || msgData.snippet || '';
+          const extractedBody = extractBodyFromGmailPayload(msgData.payload);
+          const snippetText = decodeHtmlEntities(msgData.snippet || '');
+          const body = extractedBody
+            ? `${extractedBody}\n${snippetText}`.trim()
+            : snippetText;
 
-          await this.processEmail({
+          const res = await this.processEmail({
             id: m.id,
             messageId: m.id,
             subject,
             body,
             from,
-            date: msgData.internalDate ? new Date(Number(msgData.internalDate)) : (dateStr ? new Date(dateStr) : new Date()),
-            internalDate: msgData.internalDate ? Number(msgData.internalDate) : undefined
+            date: msgData.internalDate
+              ? new Date(Number(msgData.internalDate))
+              : dateStr
+              ? new Date(dateStr)
+              : new Date(),
+            internalDate: internalMs
           });
 
-          this.processedMessageIds.add(m.id);
+          // Only lock message ID as processed if it was attributed OR if there was no active session for its amount
+          const wasAttributed = Boolean(
+            res?.attribution?.attributed || res?.pipeline?.success
+          );
+          const parsedCheck = BankEmailParser.parse({ subject, body, from });
+          if (wasAttributed || !parsedCheck) {
+            this.processedMessageIds.add(m.id);
+          } else {
+            // If it's a valid credit email that arrived 2 seconds BEFORE the user clicked 'UPI' / 'I Have Paid',
+            // allow re-checking on next sweep if within 2 minutes of arrival
+            if (Date.now() - internalMs > 2 * 60 * 1000) {
+              this.processedMessageIds.add(m.id);
+            }
+          }
+
           if (this.processedMessageIds.size > 500) {
             const firstKey = this.processedMessageIds.values().next().value;
             this.processedMessageIds.delete(firstKey);

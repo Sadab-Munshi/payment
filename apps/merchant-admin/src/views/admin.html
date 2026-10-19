@@ -3433,7 +3433,8 @@
         if (!isProtected(url)) return nativeFetch(input, init);
         if (!read()) {
           await prompt();
-          if (typeof connectAdminEventsSse === 'function') connectAdminEventsSse(); if (typeof connectServicesLogsSse === 'function') connectServicesLogsSse();
+          if (typeof connectAdminEventsSse === 'function') connectAdminEventsSse();
+          if (typeof connectServicesLogsSse === 'function') connectServicesLogsSse();
         }
         const attempt = () => {
           const headers = new Headers((init && init.headers) || (input && input.headers) || {});
@@ -3445,7 +3446,10 @@
           clear();
           await prompt('That token was rejected. Enter the admin API token again.');
           res = await attempt();
-          if (res.ok && typeof connectAdminEventsSse === 'function') connectAdminEventsSse();
+          if (res.ok) {
+            if (typeof connectAdminEventsSse === 'function') connectAdminEventsSse();
+            if (typeof connectServicesLogsSse === 'function') connectServicesLogsSse();
+          }
         }
         return res;
       }
@@ -3837,9 +3841,11 @@
     let rawLogsBuffer = [];
     function connectServicesLogsSse() {
       if (servicesLogsSse) return;
+      const tok = window.__youpiAdminAuth && typeof window.__youpiAdminAuth.token === 'function'
+        ? window.__youpiAdminAuth.token()
+        : '';
+      if (!tok) return;
       try {
-        const tok = window.__youpiAdminAuth && typeof window.__youpiAdminAuth.token === "function" ? window.__youpiAdminAuth.token() : "";
-        if (!tok) return;
         servicesLogsSse = new EventSource(`/api/logs/stream?token=${encodeURIComponent(tok)}`);
         servicesLogsSse.addEventListener('log', (e) => {
           try {
@@ -5458,30 +5464,31 @@
     }
 
     async function reconnectWhatsApp() {
-      const btn = document.getElementById("btnWaConnect");
+      const btn = document.getElementById('btnWaConnect');
       if (btn) {
         btn.disabled = true;
-        btn.innerText = "⏳ Initializing Pairing...";
+        btn.innerText = '⏳ Initializing Pairing...';
       }
+
       try {
         const res = await fetch(`${API_BASE}/api/v1/admin/whatsapp/reconnect`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" }
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
         });
         const data = await res.json().catch(() => ({}));
         if (data && data.qrCode) {
-          const qrBox = document.getElementById("waQrBox");
-          const qrImg = document.getElementById("waQrImg");
-          const qrPlaceholder = document.getElementById("waQrPlaceholder");
-          if (qrBox) qrBox.style.display = "inline-block";
+          const qrBox = document.getElementById('waQrBox');
+          const qrImg = document.getElementById('waQrImg');
+          const qrPlaceholder = document.getElementById('waQrPlaceholder');
+          if (qrBox) qrBox.style.display = 'inline-block';
           if (qrImg && qrPlaceholder) {
             qrImg.src = data.qrCode;
-            qrImg.style.display = "block";
-            qrPlaceholder.style.display = "none";
+            qrImg.style.display = 'block';
+            qrPlaceholder.style.display = 'none';
           }
         }
       } catch (e) {
-        alert("Network error initiating WhatsApp pairing");
+        alert('Network error initiating WhatsApp pairing');
       } finally {
         if (btn) btn.disabled = false;
         await fetchWhatsAppStatus();

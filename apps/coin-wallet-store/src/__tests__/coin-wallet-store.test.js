@@ -2,6 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import vm from 'node:vm';
 import { Database } from '@youpi/db';
 import { startServer as startPaymentApi } from '../../../payment-api/src/index.js';
 import { startCoinWalletStore } from '../index.js';
@@ -371,5 +372,16 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     const res = await request('/checkout/some-session-id');
     // It should either return 200/502 (if portal not up on that test port), but NEVER 404 "Route Not Found"
     assert.notEqual(res.body, 'Route Not Found');
+  });
+
+  test('GET / inline script compiles without syntax errors and CSP permits checkout iframe', async () => {
+    const res = await request('/');
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-security-policy'].includes('frame-src'));
+
+    const scriptMatch = /<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/i.exec(res.body);
+    assert.ok(scriptMatch, 'Expected inline <script> in store.html');
+    assert.doesNotThrow(() => new vm.Script(scriptMatch[1], { filename: 'store.html' }));
+    assert.ok(scriptMatch[1].includes('async function startGatewayPurchase()'));
   });
 });

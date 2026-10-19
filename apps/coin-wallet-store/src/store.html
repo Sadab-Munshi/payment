@@ -1708,9 +1708,9 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
     }
 
     function closeLightbox() {
-      const modal = document.getElementById("lightboxModal");
+      const modal = document.getElementById('lightboxModal');
       if (modal) {
-        modal.classList.remove("active");
+        modal.classList.remove('active');
       }
     }
 
@@ -1778,7 +1778,13 @@ app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, 
         }
 
         // 2. Launch checkout modal using official Youpi.pay() SDK
-        const modalCheckoutUrl = data.paymentId ? `${window.location.origin}/checkout/${encodeURIComponent(data.paymentId)}` : data.checkoutUrl;
+        // Use the store's built-in same-origin /checkout/:id reverse proxy so the modal works
+        // seamlessly on localhost, VM IP (:5000), SSH port-forwarding, and Cloudflare tunnels
+        // even before a custom domain is connected.
+        const modalCheckoutUrl = data.paymentId
+          ? `${window.location.origin}/checkout/${encodeURIComponent(data.paymentId)}`
+          : data.checkoutUrl;
+
         window.Youpi.pay({
           checkoutUrl: modalCheckoutUrl,
           paymentId: data.paymentId,

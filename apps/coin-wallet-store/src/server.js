@@ -13,7 +13,7 @@ const BASE_SECURITY_HEADERS = Object.freeze({
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; frame-src 'self' https: http:; connect-src 'self' https: http:; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
 });
 
 /**
@@ -458,7 +458,7 @@ export class CoinWalletStoreServer {
 
             // Normalize checkoutUrl for localhost development / testing to prevent tunnel offline issues
             let resolvedCheckoutUrl = payment.checkoutUrl;
-            if (this.publicBaseUrl.includes('localhost') || this.publicBaseUrl.includes('127.0.0.1')) {
+            if ((this.publicBaseUrl.includes('localhost') || this.publicBaseUrl.includes('127.0.0.1')) && !process.env.BASE_CHECKOUT_URL) {
               resolvedCheckoutUrl = `${this.publicBaseUrl}/checkout/${payment.paymentId}`;
             }
 

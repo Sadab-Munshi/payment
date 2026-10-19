@@ -39,13 +39,14 @@ function isPaymentOwner(req, session, ctx) {
  */
 export function registerPaymentRoutes(server, ctx) {
   function resolveCheckoutBaseUrl(merchant) {
-    if (merchant?.branding) {
+    const b = merchant?.branding;
+    if (b && (b.domain || b.domainTld || b.envMode === 'production' || process.env.CLOUDFLARE_DOMAIN)) {
       try {
-        const urls = resolveRuntimeUrls(merchant.branding);
+        const urls = resolveRuntimeUrls(b);
         if (urls && urls.checkoutUrl) return urls.checkoutUrl;
       } catch {}
     }
-    return ctx.checkoutBaseUrl || 'http://localhost:7000';
+    return ctx.checkoutBaseUrl || process.env.BASE_CHECKOUT_URL || 'http://localhost:7000';
   }
 
   // POST /api/v1/payments

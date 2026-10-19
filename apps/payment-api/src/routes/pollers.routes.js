@@ -73,6 +73,30 @@ export function registerPollerRoutes(server, ctx) {
       return;
     }
 
+    // If observer sent the default seed UUID ('00000000-0000-0000-0000-000000000002') and no session is active on it,
+    // resolve the merchant's actual active receiving account so observations always match custom merchant VPAs (e.g. Kotak/HDFC).
+    if (body.receivingAccountId === '00000000-0000-0000-0000-000000000002') {
+      const hasDefaultSession = ctx.db.queryOne(
+        `SELECT id FROM payment_sessions WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') LIMIT 1`,
+        [body.receivingAccountId]
+      );
+      if (!hasDefaultSession) {
+        const activeSessionAcct = ctx.db.queryOne(
+          `SELECT receiving_account_id FROM payment_sessions WHERE status IN ('ACTIVE', 'PROCESSING') ORDER BY created_at DESC LIMIT 1`
+        );
+        if (activeSessionAcct?.receiving_account_id) {
+          body.receivingAccountId = activeSessionAcct.receiving_account_id;
+        } else {
+          const activeMerchantAcct = ctx.db.queryOne(
+            `SELECT id FROM payment_receiving_accounts WHERE is_active = 1 AND id != '00000000-0000-0000-0000-000000000002' ORDER BY is_slot_busy DESC, created_at DESC LIMIT 1`
+          );
+          if (activeMerchantAcct?.id) {
+            body.receivingAccountId = activeMerchantAcct.id;
+          }
+        }
+      }
+    }
+
     // Evaluate through Security & Fraud Verification Pipeline
     const rawText = body.rawText || body.text || body.message || body.sms || body.body || (typeof body.rawPayload === 'string' ? body.rawPayload : (body.rawPayload?.text || body.rawPayload?.body));
     const sender = body.sender || body.from || body.rawPayload?.sender || body.rawPayload?.from;

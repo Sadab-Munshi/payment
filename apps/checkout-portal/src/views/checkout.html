@@ -6500,7 +6500,7 @@
 
     function continueExistingActivePayment() {
       if (activeConflictSessionId) {
-        window.location.href = `/checkout/${activeConflictSessionId}`;
+        window.location.href = `/checkout/${activeConflictSessionId}${window.location.search || ''}`;
       } else {
         const conflictModal = document.getElementById('activeConflictModal');
         if (conflictModal) conflictModal.hidden = true;
@@ -6647,7 +6647,9 @@
 
         const data = await res.json();
         if (data.success && (data.checkoutUrl || data.newSessionId)) {
-          const targetUrl = data.checkoutUrl || `/checkout/${data.newSessionId}`;
+          const targetUrl = data.newSessionId
+            ? `/checkout/${data.newSessionId}${window.location.search || ''}`
+            : data.checkoutUrl;
           window.location.href = targetUrl;
         } else {
           alert(data.error || 'Failed to start new payment session. Please try again.');

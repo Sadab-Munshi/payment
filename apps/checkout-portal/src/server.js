@@ -8,10 +8,10 @@ import { getInternalServiceToken } from '@youpi/common';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Security headers applied to every response served by the portal. */
+/** Security headers applied to every response served by the portal (embeddable inside merchant checkout modals). */
 const BASE_SECURITY_HEADERS = Object.freeze({
   'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self' https: http:; frame-ancestors 'self' https: http:; base-uri 'none'; form-action 'self'; object-src 'none'"
 });
 

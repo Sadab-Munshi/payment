@@ -19,14 +19,14 @@ const BASE_SECURITY_HEADERS = Object.freeze({
 /** Routes reachable without a credential (liveness probe and the dashboard shell). */
 const PUBLIC_PATHS = new Set(['/health', '/', '/dashboard']);
 
-/** True when the caller presented the admin bearer token in constant time. */
+/** True when the caller presented the admin bearer token in constant time (or ?token= on GET /api/logs/stream). */
 function hasAdminToken(req, allowQueryToken = false) {
-  const match = /^Bearer\s+(.+)$/i.exec(req.headers?.["authorization"] || "");
+  const match = /^Bearer\s+(.+)$/i.exec(req.headers?.['authorization'] || '');
   if (match && safeEqual(match[1].trim(), getAdminToken())) return true;
-  if (allowQueryToken && (req.method === "GET" || !req.method)) {
+  if (allowQueryToken && (req.method === 'GET' || !req.method)) {
     try {
-      const u = new URL(req.url || "/", "http://localhost");
-      const q = u.searchParams.get("token");
+      const u = new URL(req.url || '/', 'http://localhost');
+      const q = u.searchParams.get('token');
       if (q && safeEqual(q.trim(), getAdminToken())) return true;
     } catch {}
   }
@@ -181,7 +181,7 @@ export class ControlCenterServer {
         });
 
         // Send existing logs
-        for (const log of this.processManager.logs.slice(-50)) {
+        for (const log of this.processManager.logs.slice(-200)) {
           res.write(`event: log\ndata: ${JSON.stringify(log)}\n\n`);
         }
 

@@ -10,8 +10,56 @@ const rootDir = path.resolve(__dirname, '../../../..');
 
 let BerryProtocolClass = null;
 let qrcodeLib = null;
+let sqliteShimChecked = false;
+
+function ensureBerrySqliteStoreShim() {
+  if (sqliteShimChecked) return;
+  sqliteShimChecked = true;
+  const storeCandidates = [
+    path.resolve(rootDir, 'node_modules/@berrysdk/store/dist/index.js'),
+    path.resolve(rootDir, 'apps/payment-api/node_modules/@berrysdk/store/dist/index.js')
+  ];
+  const shimSource = `import { DatabaseSync } from "node:sqlite";
+class Database {
+  constructor(p) { this._db = new DatabaseSync(p); }
+  exec(sql) { return this._db.exec(sql); }
+  prepare(sql) {
+    const stmt = this._db.prepare(sql);
+    return {
+      run: (arg) => {
+        if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+          const named = {};
+          for (const [k, v] of Object.entries(arg)) named["@" + k] = v;
+          return stmt.run(named);
+        }
+        return arg !== undefined ? stmt.run(arg) : stmt.run();
+      },
+      get: (...args) => stmt.get(...args)
+    };
+  }
+  transaction(fn) {
+    return (items) => {
+      this._db.exec("BEGIN");
+      try { const r = fn(items); this._db.exec("COMMIT"); return r; }
+      catch (e) { try { this._db.exec("ROLLBACK"); } catch {} throw e; }
+    };
+  }
+}`;
+  for (const storePath of storeCandidates) {
+    try {
+      if (fs.existsSync(storePath)) {
+        const current = fs.readFileSync(storePath, 'utf8');
+        if (current.includes('import Database from "better-sqlite3";')) {
+          fs.writeFileSync(storePath, current.replace('import Database from "better-sqlite3";', shimSource), 'utf8');
+          console.log('[WhatsAppBerryService] Patched @berrysdk/store to use built-in node:sqlite (DatabaseSync).');
+        }
+      }
+    } catch {}
+  }
+}
 
 async function loadDependencies() {
+  ensureBerrySqliteStoreShim();
   if (!BerryProtocolClass) {
     const candidates = [
       'berryprotocol',
