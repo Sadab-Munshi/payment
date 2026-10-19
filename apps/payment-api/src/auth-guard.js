@@ -31,6 +31,8 @@ function requiredLevel(method, pathname) {
     return 'admin';
   }
   if (method === 'POST' && pathname === '/api/v1/pollers/events') return 'observer';
+  // Protect customer COD PII endpoints from unauthenticated enumeration
+  if (method === 'GET' && /^\/api\/v1\/(payments|orders|checkout)\/[^/]+\/cod$/.test(pathname)) return 'admin';
   // Injects a synthetic bank message into the real verification pipeline.
   if (method === 'POST' && /^\/api\/v1\/checkout\/[^/]+\/simulate-observation$/.test(pathname)) return 'admin';
   return null;

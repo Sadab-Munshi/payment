@@ -20,11 +20,13 @@ export class AttributionEngine {
       (process.execArgv && process.execArgv.includes('--test')) ||
       (process.argv && process.argv.some(a => typeof a === 'string' && a.includes('test')));
 
+    const isEmailOnly = process.env.YOUPI_EMAIL_ONLY_MODE === 'true';
+
     this.gracePeriodMs = options.gracePeriodMs !== undefined
       ? options.gracePeriodMs
       : (process.env.PAYMENT_GRACE_PERIOD_MS !== undefined
         ? Number(process.env.PAYMENT_GRACE_PERIOD_MS)
-        : (isTestExecution ? 0 : 5000));
+        : ((isTestExecution || isEmailOnly) ? 0 : 5000));
     /** @type {Map<string, NodeJS.Timeout>} */
     this.pendingGraceTimers = new Map();
   }

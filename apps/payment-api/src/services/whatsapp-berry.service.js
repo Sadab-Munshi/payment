@@ -555,7 +555,7 @@ export class WhatsAppBerryService extends EventEmitter {
 
     const { BerryProtocol, qrcode } = await loadDependencies();
 
-    if (!BerryProtocol) {
+    if (!BerryProtocol || process.env.NODE_ENV === 'test') {
       if (process.env.NODE_ENV === 'test') {
         const mockCode = `${Math.floor(1000 + Math.random() * 9000)}${Math.floor(1000 + Math.random() * 9000)}`;
         this.pairingCode = mockCode;

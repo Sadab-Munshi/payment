@@ -506,6 +506,7 @@ Deep-dive engineering manuals and operational runbooks are available in the [`/d
 | Document | Description |
 | :--- | :--- |
 |  [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Canonical System Architecture & Engineering Blueprint** |
+|  [`PRODUCTION_READINESS_REPORT.md`](PRODUCTION_READINESS_REPORT.md) | **Production Architecture, Security Audit & Deployment Runbook** |
 |  [`docs/INSTALLATION.md`](docs/INSTALLATION.md) | Host installation, prerequisites & environment setup |
 |  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Environment configuration variables & secret management |
 |  [`docs/ANDROID_MOBILE_APP.md`](docs/ANDROID_MOBILE_APP.md) | Native Android Kotlin Observer APK guide & permissions |
@@ -514,6 +515,14 @@ Deep-dive engineering manuals and operational runbooks are available in the [`/d
 |  [`docs/WHITE_LABEL.md`](docs/WHITE_LABEL.md) | White-label branding customizer, domains & Cloudflare |
 |  [`docs/OPERATIONS_TROUBLESHOOTING.md`](docs/OPERATIONS_TROUBLESHOOTING.md) | Production operations, logs, diagnostics & troubleshooting |
 |  [`openapi.yaml`](openapi.yaml) | Official OpenAPI 3.0 REST API specification |
+
+<br/>
+
+---
+
+##  Acknowledgments & Production Audit
+
+The comprehensive codebase review, security audit, and production readiness runbook ([`PRODUCTION_READINESS_REPORT.md`](PRODUCTION_READINESS_REPORT.md)) were authored by a helpful agent on **Arena.ai** (**Arena.ai's Agent Mode**), which uses many different models, including, but not limited to, **Claude, ChatGPT, Gemini, Grok, Qwen, and Kimi**.
 
 <br/>
 

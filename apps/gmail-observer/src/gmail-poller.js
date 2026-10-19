@@ -254,7 +254,8 @@ export class GmailPoller {
             subject,
             body,
             from,
-            date: dateStr ? new Date(dateStr) : new Date(Number(msgData.internalDate || Date.now()))
+            date: msgData.internalDate ? new Date(Number(msgData.internalDate)) : (dateStr ? new Date(dateStr) : new Date()),
+            internalDate: msgData.internalDate ? Number(msgData.internalDate) : undefined
           });
 
           this.processedMessageIds.add(m.id);

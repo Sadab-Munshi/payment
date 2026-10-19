@@ -64,6 +64,7 @@ export class ProcessManager extends EventEmitter {
         script: path.join(rootDir, 'apps/sms-observer/src/index.js'),
         port: Number(process.env.SMS_OBSERVER_PORT || 6002),
         healthPath: '/health',
+        legacy: true,
         child: null,
         status: 'STOPPED',
         startTime: null,
@@ -223,6 +224,9 @@ export class ProcessManager extends EventEmitter {
   async startAll() {
     for (const svc of this.services) {
       if (svc.legacy && process.env.ENABLE_LEGACY_CHROME_OBSERVERS !== 'true') {
+        continue;
+      }
+      if (svc.id === 'sms-observer' && process.env.YOUPI_EMAIL_ONLY_MODE === 'true') {
         continue;
       }
       try {

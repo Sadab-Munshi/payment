@@ -14,6 +14,8 @@ const rootDir = path.resolve(__dirname, '..');
 // Authoritative runtime mode enforcement (Part B1 & B4)
 process.env.YOUPI_MODE = 'production';
 process.env.NODE_ENV = 'production';
+if (!process.env.YOUPI_EMAIL_ONLY_MODE) process.env.YOUPI_EMAIL_ONLY_MODE = 'true';
+if (!process.env.PAYMENT_GRACE_PERIOD_MS) process.env.PAYMENT_GRACE_PERIOD_MS = '0';
 
 // In production, reliably ensure environment variables from .env are loaded
 try {
@@ -91,9 +93,9 @@ console.log(`• Merchant Admin Hub:   ${runtimeUrls.adminUrl}  (-> :6001)`);
 console.log(`• Gmail OAuth/Observer: ${runtimeUrls.gmailUrl}  (-> :6003)`);
 console.log(`• Demo Store (Opt):     ${runtimeUrls.storeUrl}  (-> :5000)`);
 console.log('----------------------------------------------------');
-console.log('OBSERVATION CHANNELS:');
-console.log('• Android SMS Observer: Native APK -> Public Payment API');
-console.log('• Gmail API Observer:   OAuth2 API -> Public Payment API');
+console.log('OBSERVATION CHANNELS (EMAIL-ONLY PRODUCTION MODE):');
+console.log('• Gmail API Observer:   OAuth2 API -> Public Payment API (Instant 0ms Grace)');
+console.log('• SMS / Android APK:    DISABLED (YOUPI_EMAIL_ONLY_MODE=true)');
 console.log('• Legacy Chrome CDP:    DISABLED in production');
 console.log('====================================================');
 console.log('Press Ctrl+C to stop all services gracefully.');

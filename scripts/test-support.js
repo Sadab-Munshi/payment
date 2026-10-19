@@ -22,7 +22,7 @@ export function authFetch(url, init = {}) {
   return fetch(url, { ...init, headers: { ...authHeadersFor(url), ...(init.headers || {}) } });
 }
 
-const GUARDED = /\/api\/v1\/admin\/|\/api\/v1\/pollers\/events|\/api\/v1\/pollers\/active-window|\/simulate-observation/;
+const GUARDED = /\/api\/v1\/admin\/|\/api\/v1\/pollers\/events|\/api\/v1\/pollers\/active-window|\/simulate-observation|\/api\/v1\/(payments|orders|checkout)\/[^/]+\/cod$/;
 
 /** Admin bearer header only for routes the gateway guards; other routes (customer auth etc.) get none. */
 export function authHeadersFor(path, extra = {}) {

@@ -162,9 +162,8 @@ export class AdminServer {
           path: req.url,
           method: req.method,
           headers: {
-            ...req.headers,
+            ...sanitizedForwardHeaders(req, `localhost:${targetPort}`),
             'x-merchant-id': req.headers['x-merchant-id'] || defaultMerchantId,
-            host: `localhost:${targetPort}`,
             'x-forwarded-host': req.headers.host || '',
             'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
           }

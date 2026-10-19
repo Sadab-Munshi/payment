@@ -27,7 +27,7 @@
     "typescript": "^5.7.3"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.5.0"
   },
   "author": "Antigravity Systems",
   "license": "Commercial"

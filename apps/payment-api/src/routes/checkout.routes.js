@@ -271,6 +271,22 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
     ? enabledMethods.includes('COD')
     : enabledMethods.includes('CASH_COUNTER');
 
+  const emailOnlyMode = process.env.YOUPI_EMAIL_ONLY_MODE === 'true';
+
+  if (emailOnlyMode && gmailHealthy) {
+    return {
+      status: 'WORKING',
+      tier: 'GREEN',
+      label: 'Server Is Working',
+      isWorking: true,
+      reason: 'All observers active: Gmail OAuth polling active (Email-Only Mode)',
+      smsHealthy: true,
+      gmailHealthy: true,
+      warning: null,
+      recommendedAlternative: null
+    };
+  }
+
   if (smsHealthy && gmailHealthy) {
     return {
       status: 'WORKING',

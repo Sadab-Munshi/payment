@@ -257,11 +257,13 @@ export function createPaymentApp(customDb = null, options = {}) {
           return;
         }
 
-        // Sweep 1: Google Messages Web SMS
-        try {
-          const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-          fetch(`http://localhost:${smsPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(1200) }).catch(() => {});
-        } catch {}
+        // Sweep 1: Google Messages Web SMS (skipped in Email-Only mode)
+        if (process.env.YOUPI_EMAIL_ONLY_MODE !== 'true') {
+          try {
+            const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
+            fetch(`http://localhost:${smsPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(1200) }).catch(() => {});
+          } catch {}
+        }
 
         // Sweep 2: Gmail Inbox
         try {
@@ -350,11 +352,13 @@ export function createPaymentApp(customDb = null, options = {}) {
 
       if (activeSessions.length === 0) return;
 
-      // 1. Poll SMS Observer
-      try {
-        const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-        fetch(`http://localhost:${smsPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(800) }).catch(() => {});
-      } catch {}
+      // 1. Poll SMS Observer (skipped in Email-Only mode)
+      if (process.env.YOUPI_EMAIL_ONLY_MODE !== 'true') {
+        try {
+          const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
+          fetch(`http://localhost:${smsPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(800) }).catch(() => {});
+        } catch {}
+      }
 
       // 2. Poll Gmail Observer
       try {

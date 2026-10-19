@@ -256,6 +256,8 @@ export function registerCustomerRoutes(server, ctx) {
       pendingOtpChallenges.delete(cleanMobile);
     }
 
+    otpRequestLog.delete(cleanMobile);
+
     // Server-side Ban Enforcement (Section 3)
     if (customer.status === 'BANNED') {
       HttpServer.json(res, 403, {
