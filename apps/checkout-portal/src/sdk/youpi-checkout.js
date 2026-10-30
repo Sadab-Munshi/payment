@@ -405,6 +405,32 @@
      * the app, so Chrome sees a real user gesture in the top-level frame.
      * Android only — iOS Safari has no handler for the generic upi:// scheme.
      */
+    /**
+     * Asks the checkout frame to re-send its UPI URI.
+     *
+     * The frame pushes on every state render, but the parent's listener may not
+     * be attached yet, and a single dropped message leaves the payer with no
+     * button. Pulling on modal_ready (plus two retries while the frame finishes
+     * loading) makes delivery independent of message ordering.
+     */
+    _requestUpiUri() {
+      const ask = () => {
+        try {
+          if (this._iframe && this._iframe.contentWindow) {
+            this._iframe.contentWindow.postMessage(
+              { event: 'youpi.request_upi_uri' },
+              this._iframeOrigin || '*'
+            );
+          }
+        } catch (err) {
+          /* frame gone */
+        }
+      };
+      ask();
+      setTimeout(ask, 700);
+      setTimeout(ask, 2000);
+    }
+
     _renderUpiLaunch(upiUri, amountLabel) {
       if (!isBrowser || !this.container || !this.isOpen) return;
       try {
@@ -467,6 +493,13 @@
       // from this handler is silently dropped. The tap has to happen here, in the
       // top-level document, so the frame just reports its URI and we render the
       // button ourselves.
+      // Pull as well as push: the frame may render its state before this
+      // listener is attached, and a dropped push means no button at all.
+      if (event === 'youpi.modal_ready') {
+        this._requestUpiUri();
+        return;
+      }
+
       if (event === 'youpi.upi_ready') {
         const upiUri = typeof e.data.upiUri === 'string' ? e.data.upiUri.trim() : '';
         if (/^upi:\/\/pay\?/i.test(upiUri)) {
@@ -754,7 +787,10 @@
           width: 100%;
           height: 100%;
           border: none;
-          flex: 1;
+          flex: 1 1 0;
+          /* min-height:0 lets the frame give up height to the footer bar instead
+             of overflowing the (overflow:hidden) modal container. */
+          min-height: 0;
           background: #ffffff;
           touch-action: auto !important;
         }
@@ -763,7 +799,9 @@
            top-level frame (see _renderUpiLaunch). */
         .youpi-upi-launch-bar {
           display: none;
-          flex-shrink: 0;
+          flex: 0 0 auto;
+          position: relative;
+          z-index: 2;
           padding: 10px 12px;
           border-top: 1px solid #e2e8f0;
           background: #ffffff;

@@ -5679,6 +5679,42 @@
     let lastReportedUpiUri = null;
 
     /**
+     * Tells the parent SDK which URI to launch.
+     *
+     * The URI is sent as data only: this frame cannot launch a UPI app (Chrome
+     * blocks intent:// from a subframe) and the gesture cannot be forwarded
+     * either. The SDK renders the button in the top-level document and launches
+     * from its own click handler.
+     */
+    function reportUpiUri(force) {
+      const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
+      if (!/^upi:\/\/pay\?/i.test(uri)) return;
+      if (!canHandOffToUpiApp()) return;
+      if (!force && uri === lastReportedUpiUri) return;
+      lastReportedUpiUri = uri;
+
+      const amount = state && state.amount ? String(state.amount).trim() : '';
+      try {
+        window.parent.postMessage({
+          event: 'youpi.upi_ready',
+          upiUri: uri,
+          amountLabel: amount ? `\u20b9${amount}` : ''
+        }, '*');
+      } catch (err) {
+        /* Parent unreachable — the QR stays available as the fallback. */
+      }
+    }
+
+    // The parent asks for the URI once the modal is live. Answering the request
+    // as well as pushing after each render means a missed message can't leave
+    // the payer without a button.
+    window.addEventListener('message', function (e) {
+      if (!e.data || e.data.event !== 'youpi.request_upi_uri') return;
+      if (window.self === window.top) return;
+      reportUpiUri(true);
+    });
+
+    /**
      * Rewrites the QR's upi://pay URI into the intent:// form Chrome for Android
      * requires (developer.chrome.com/docs/android/intents).
      *
@@ -5720,18 +5756,7 @@
         if (card) card.classList.remove('has-open-upi');
         if (hint) hint.style.display = 'none';
 
-        if (usable && uri !== lastReportedUpiUri) {
-          lastReportedUpiUri = uri;
-          try {
-            window.parent.postMessage({
-              event: 'youpi.upi_ready',
-              upiUri: uri,
-              amountLabel: amount ? `₹${amount}` : ''
-            }, '*');
-          } catch (err) {
-            /* Parent unreachable — the QR stays available as the fallback. */
-          }
-        }
+        if (usable) reportUpiUri(false);
         return;
       }
 
