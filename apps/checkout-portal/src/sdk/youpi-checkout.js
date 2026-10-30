@@ -397,6 +397,24 @@
       const event = e.data.event;
       const rawData = e.data.data || e.data;
 
+      // The checkout iframe cannot launch a UPI app itself: Chrome blocks an
+      // intent:// navigation initiated inside a frame and shows "This content is
+      // blocked". The launch has to happen from this top-level document, so the
+      // iframe forwards the URI and we navigate here.
+      // Only a upi-scheme intent is accepted, so a compromised frame can never
+      // steer the host page to an arbitrary URL.
+      if (event === 'youpi.open_upi_app') {
+        const target = typeof e.data.intentUrl === 'string' ? e.data.intentUrl : '';
+        if (/^intent:\/\//i.test(target) && target.includes('#Intent;') && target.includes('scheme=upi')) {
+          try {
+            window.location.href = target;
+          } catch (err) {
+            /* No handler — the QR in the iframe remains the fallback path. */
+          }
+        }
+        return;
+      }
+
       if (event === 'youpi.payment_success') {
         const payload = e.data.data || {};
         const result = {

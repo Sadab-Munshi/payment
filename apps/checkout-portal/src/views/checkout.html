@@ -5721,10 +5721,29 @@
       if (!/^upi:\/\/pay\?/i.test(uri)) return;
       if (!canHandOffToUpiApp()) return;
 
+      const embedded = window.self !== window.top;
+      // When embedded, the page the user must come back to is the host's, not
+      // this frame's, so point the fallback at the referrer.
+      const fallbackUrl = embedded ? (document.referrer || '') : window.location.href;
+      const intentUrl = buildAndroidUpiIntent(uri, fallbackUrl);
+
+      // Chrome blocks an intent:// navigation started inside an iframe — it
+      // renders "This content is blocked", which is what the host checkout
+      // modal hit. Only the top-level document may launch the app, so hand the
+      // URI to the SDK (parent) and let it navigate.
+      if (embedded) {
+        try {
+          window.parent.postMessage({ event: 'youpi.open_upi_app', intentUrl }, '*');
+          return;
+        } catch (err) {
+          /* fall through to a direct attempt below */
+        }
+      }
+
       try {
         // Must stay inside the click handler: Chrome only launches an external
         // app for an intent:// URI when a user gesture is present.
-        window.location.href = buildAndroidUpiIntent(uri, window.location.href);
+        window.location.href = intentUrl;
       } catch (err) {
         /* Chooser unavailable — the QR remains as the fallback path. */
       }
