@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { startCheckoutServer } from '../index.js';
 import { generateQrMatrix, generateQrSvg } from '../qr.js';
+import { readFile } from 'node:fs/promises';
 
 describe('Checkout Portal Integration Tests', () => {
   let serverInstance;
@@ -144,4 +145,30 @@ describe('Checkout Portal Integration Tests', () => {
       assert.equal(res.text.includes('id="drawerVpa"'), false);
     });
   });
+
+  // Regression guard: the portal serves sdk/youpi.js when it exists and only
+  // falls back to sdk/youpi-checkout.js, so a feature added to one file is
+  // silently ignored in the browser. Assert both carry the UPI hand-off.
+  describe('UPI app hand-off (SDK surface)', () => {
+    const sdkFiles = ['youpi.js', 'youpi-checkout.js'];
+
+    for (const file of sdkFiles) {
+      test(`${file} can render and launch the UPI hand-off`, async () => {
+        const sdkPath = new URL(`../sdk/${file}`, import.meta.url);
+        const src = await readFile(sdkPath, 'utf8');
+
+        // The frame reports its URI; the SDK renders the button in the modal
+        // chrome, where the tap carries real user activation.
+        assert.ok(src.includes("event === 'youpi.upi_ready'"), `${file} missing the youpi.upi_ready branch`);
+        assert.ok(src.includes('_renderUpiLaunch'), `${file} missing _renderUpiLaunch`);
+        assert.ok(src.includes('_buildUpiIntent'), `${file} missing _buildUpiIntent`);
+        assert.ok(src.includes('.youpi-upi-launch-bar'), `${file} missing the footer bar styles`);
+
+        // Android intent, no package pinning (system chooser = "any UPI app").
+        assert.ok(src.includes("'scheme=upi'"), `${file} must build a upi-scheme intent`);
+        assert.equal(/package=/.test(src), false, `${file} must not pin a UPI app package`);
+      });
+    }
+  });
+
 });
