@@ -561,6 +561,61 @@
       line-height: 1.3;
     }
 
+    /* Mobile-only "Pay in UPI App" deep link.
+       A QR displayed on the phone that is paying is unscannable, so on small
+       screens we hand the identical upi://pay URI to the OS app chooser. The
+       QR stays visible above it as a fallback for second-device users.
+       Hidden on desktop: no desktop browser registers the upi:// scheme. */
+    .ypg-open-upi-btn {
+      display: none;
+      width: 100%;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 46px;
+      padding: 11px 16px;
+      border: none;
+      border-radius: 12px;
+      background: var(--ypg-blue, #2563eb);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.2;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: filter 120ms ease, transform 80ms ease;
+    }
+
+    .ypg-open-upi-btn:active {
+      transform: scale(0.99);
+      filter: brightness(0.94);
+    }
+
+    .ypg-open-upi-btn:focus-visible {
+      outline: 2px solid var(--ypg-blue-dark, #1d4ed8);
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 600px) {
+      .ypg-open-upi-btn.is-available {
+        display: inline-flex;
+      }
+
+      /* Give the button the full card width by stacking the QR above the text.
+         Applied only when the button is actually usable (class set from JS),
+         so the existing mobile QR layout is untouched if no upiUri is present. */
+      .ypg-qr-card-container.has-open-upi {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+      }
+
+      .ypg-qr-card-container.has-open-upi .ypg-qr-image-box {
+        align-self: center;
+      }
+    }
+
     /* UPI Brand Logos */
     .ypg-upi-logos-row {
       display: flex;
@@ -3520,6 +3575,12 @@
                   <div class="ypg-qr-details-col">
                     <div class="ypg-qr-prompt-title">Scan the QR using any UPI App</div>
 
+                    <!-- Single-device path: opens the OS UPI app chooser with the
+                         same upi://pay URI the QR encodes. Shown only on phones. -->
+                    <button type="button" id="openUpiAppBtn" class="ypg-open-upi-btn" onclick="openUpiApp()">
+                      Pay in UPI App
+                    </button>
+
                     <!-- Brand Logos Row (Zero Fake Offers) -->
                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:3px 0 6px 0;">
                       <div class="ypg-upi-logos-row">
@@ -3553,7 +3614,7 @@
                   </div>
                   <div class="ypg-instruction-step">
                     <div class="ypg-step-num">2</div>
-                    <div>Scan the QR code above and complete the payment of <strong>₹{{AMOUNT}}</strong>.</div>
+                    <div>Scan the QR code above, or tap <strong>Pay in UPI App</strong> on this phone, then complete the payment of <strong>₹{{AMOUNT}}</strong>.</div>
                   </div>
                   <div class="ypg-instruction-step">
                     <div class="ypg-step-num">3</div>
@@ -5591,8 +5652,54 @@
       container.style.display = html ? 'flex' : 'none';
     }
 
+    /**
+     * Mobile "Pay in UPI App" hand-off.
+     *
+     * The QR is unscannable when the phone displaying it is the phone paying, so
+     * on small screens we launch the OS chooser with the *identical* upi://pay
+     * URI the QR encodes. Reusing that exact string matters: the `tn` note and
+     * amount are what the bank SMS / Gmail observer matches on, so a
+     * regenerated or re-encoded URI risks payments that arrive but never get
+     * attributed to the order.
+     *
+     * Deliberately generic (no per-app package targeting): NPCI requires an
+     * "any UPI app" option, and letting the OS resolve the intent avoids the
+     * malformed intent:// payloads that surface as bogus "limit exceeded" errors.
+     */
+    function syncOpenUpiAppButton() {
+      const btn = document.getElementById('openUpiAppBtn');
+      if (!btn) return;
+
+      const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
+      const usable = /^upi:\/\/pay\?/i.test(uri);
+
+      btn.classList.toggle('is-available', usable);
+
+      const card = btn.closest('.ypg-qr-card-container');
+      if (card) card.classList.toggle('has-open-upi', usable);
+
+      if (!usable) return;
+
+      const amount = state && state.amount ? String(state.amount).trim() : '';
+      btn.textContent = amount ? `Pay ₹${amount} in UPI App` : 'Pay in UPI App';
+    }
+
+    function openUpiApp() {
+      const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
+      if (!/^upi:\/\/pay\?/i.test(uri)) return;
+
+      try {
+        // Handing the upi:// URI to location lets Android/iOS resolve the app
+        // chooser. No-op where no handler is registered (desktop browsers).
+        window.location.href = uri;
+      } catch (err) {
+        /* No UPI handler available — the QR remains as the fallback path. */
+      }
+    }
+
     function renderState(data) {
       state = data;
+      syncOpenUpiAppButton();
       const b = data.branding || {};
       const appName = b.appName || 'YouPI PG';
       const merchantName = data.merchantName || 'Merchant Checkout';
