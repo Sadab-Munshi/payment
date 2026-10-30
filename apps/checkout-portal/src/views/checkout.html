@@ -3614,7 +3614,7 @@
                   </div>
                   <div class="ypg-instruction-step">
                     <div class="ypg-step-num">2</div>
-                    <div>Scan the QR code above, or tap <strong>Pay in UPI App</strong> on this phone, then complete the payment of <strong>₹{{AMOUNT}}</strong>.</div>
+                    <div><span>Scan the QR code above</span><span id="tapHintStep2" style="display:none">, or tap <strong>Pay in UPI App</strong> on this phone</span><span>, then complete the payment of <strong>₹{{AMOUNT}}</strong>.</span></div>
                   </div>
                   <div class="ypg-instruction-step">
                     <div class="ypg-step-num">3</div>
@@ -5656,27 +5656,59 @@
      * Mobile "Pay in UPI App" hand-off.
      *
      * The QR is unscannable when the phone displaying it is the phone paying, so
-     * on small screens we launch the OS chooser with the *identical* upi://pay
-     * URI the QR encodes. Reusing that exact string matters: the `tn` note and
-     * amount are what the bank SMS / Gmail observer matches on, so a
-     * regenerated or re-encoded URI risks payments that arrive but never get
-     * attributed to the order.
-     *
-     * Deliberately generic (no per-app package targeting): NPCI requires an
-     * "any UPI app" option, and letting the OS resolve the intent avoids the
-     * malformed intent:// payloads that surface as bogus "limit exceeded" errors.
+     * on small screens we hand the OS the *identical* upi://pay URI the QR
+     * encodes. Reusing that exact string matters: the `tn` note and amount are
+     * what the bank SMS / Gmail observer matches on, so a regenerated or
+     * re-encoded URI risks payments that arrive but never get attributed.
      */
+
+    /**
+     * Android browsers only.
+     *
+     * Chrome for Android will not navigate a page to a bare upi:// URI — it
+     * renders ERR_UNKNOWN_URL_SCHEME instead of opening the app. The supported
+     * route is the intent: syntax below. iOS Safari has no handler for the
+     * generic upi:// scheme at all, so there is nothing honest to offer there.
+     */
+    function canHandOffToUpiApp() {
+      return typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
+    }
+
+    /**
+     * Rewrites the QR's upi://pay URI into the intent:// form Chrome for Android
+     * requires (developer.chrome.com/docs/android/intents).
+     *
+     * The package is deliberately omitted: Android resolves every installed app
+     * that handles upi://pay and shows its own chooser. That is both the NPCI
+     * "pay by any UPI app" requirement and why no app is privileged here.
+     * Without browser_fallback_url a missing UPI app would strand the user on a
+     * Play Store page, so the checkout URL is passed as the fallback.
+     */
+    function buildAndroidUpiIntent(upiUri, fallbackUrl) {
+      const body = upiUri.replace(/^upi:\/\//i, '').split('#')[0];
+      const extras = ['Intent', 'scheme=upi', 'action=android.intent.action.VIEW'];
+      if (fallbackUrl) {
+        extras.push('S.browser_fallback_url=' + encodeURIComponent(fallbackUrl));
+      }
+      extras.push('end');
+      return 'intent://' + body + '#' + extras.join(';');
+    }
+
     function syncOpenUpiAppButton() {
       const btn = document.getElementById('openUpiAppBtn');
       if (!btn) return;
 
       const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
-      const usable = /^upi:\/\/pay\?/i.test(uri);
+      const usable = /^upi:\/\/pay\?/i.test(uri) && canHandOffToUpiApp();
 
       btn.classList.toggle('is-available', usable);
 
       const card = btn.closest('.ypg-qr-card-container');
       if (card) card.classList.toggle('has-open-upi', usable);
+
+      // Only promise the tap in the instructions when the button is really there.
+      const hint = document.getElementById('tapHintStep2');
+      if (hint) hint.style.display = usable ? 'inline' : 'none';
 
       if (!usable) return;
 
@@ -5687,13 +5719,14 @@
     function openUpiApp() {
       const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
       if (!/^upi:\/\/pay\?/i.test(uri)) return;
+      if (!canHandOffToUpiApp()) return;
 
       try {
-        // Handing the upi:// URI to location lets Android/iOS resolve the app
-        // chooser. No-op where no handler is registered (desktop browsers).
-        window.location.href = uri;
+        // Must stay inside the click handler: Chrome only launches an external
+        // app for an intent:// URI when a user gesture is present.
+        window.location.href = buildAndroidUpiIntent(uri, window.location.href);
       } catch (err) {
-        /* No UPI handler available — the QR remains as the fallback path. */
+        /* Chooser unavailable — the QR remains as the fallback path. */
       }
     }
 
