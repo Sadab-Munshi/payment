@@ -143,6 +143,8 @@
       this.backdrop = null;
       this.container = null;
       this.iframe = null;
+      this._upiUri = null;
+      this._upiBar = null;
 
       this._handleMessage = this._handleMessage.bind(this);
     }
@@ -379,6 +381,67 @@
       backdrop.addEventListener('mouseup', stopOutsideDismiss, true);
     }
 
+    /**
+     * Rewrites a upi://pay URI into the intent:// form Chrome for Android needs.
+     * The package is omitted so Android shows its own app chooser (NPCI's
+     * "pay by any UPI app"), and the current page is the fallback if no UPI app
+     * is installed.
+     */
+    _buildUpiIntent(upiUri) {
+      const body = String(upiUri || '').replace(/^upi:\/\//i, '').split('#')[0];
+      const extras = ['Intent', 'scheme=upi', 'action=android.intent.action.VIEW'];
+      try {
+        extras.push('S.browser_fallback_url=' + encodeURIComponent(window.location.href));
+      } catch (err) { /* fallback is optional */ }
+      extras.push('end');
+      return 'intent://' + body + '#' + extras.join(';');
+    }
+
+    /**
+     * Renders the "Pay in UPI App" button in the modal footer (top-level DOM).
+     *
+     * Must live in this document: see the youpi.upi_ready branch in
+     * _handleMessage. The click handler, and only the click handler, launches
+     * the app, so Chrome sees a real user gesture in the top-level frame.
+     * Android only — iOS Safari has no handler for the generic upi:// scheme.
+     */
+    _renderUpiLaunch(upiUri, amountLabel) {
+      if (!isBrowser || !this.container || !this.isOpen) return;
+      try {
+        if (!/android/i.test(navigator.userAgent || '')) return;
+      } catch (err) {
+        return;
+      }
+
+      this._upiUri = upiUri;
+
+      let bar = this._upiBar;
+      if (!bar || !bar.parentNode) {
+        bar = document.createElement('div');
+        bar.className = 'youpi-upi-launch-bar';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'youpi-upi-launch-btn';
+        btn.addEventListener('click', () => {
+          if (!this._upiUri) return;
+          try {
+            window.location.href = this._buildUpiIntent(this._upiUri);
+          } catch (err) {
+            /* No UPI app available — the QR in the iframe remains the fallback. */
+          }
+        });
+
+        bar.appendChild(btn);
+        this.container.appendChild(bar);
+        this._upiBar = bar;
+      }
+
+      const btn = bar.querySelector('.youpi-upi-launch-btn');
+      if (btn) btn.textContent = amountLabel ? `Pay ${amountLabel} in UPI App` : 'Pay in UPI App';
+      bar.style.display = 'flex';
+    }
+
     _isSafeRedirect(url) {
       try {
         const u = new URL(url, window.location.href);
@@ -399,18 +462,16 @@
 
       // The checkout iframe cannot launch a UPI app itself: Chrome blocks an
       // intent:// navigation initiated inside a frame and shows "This content is
-      // blocked". The launch has to happen from this top-level document, so the
-      // iframe forwards the URI and we navigate here.
-      // Only a upi-scheme intent is accepted, so a compromised frame can never
-      // steer the host page to an arbitrary URL.
-      if (event === 'youpi.open_upi_app') {
-        const target = typeof e.data.intentUrl === 'string' ? e.data.intentUrl : '';
-        if (/^intent:\/\//i.test(target) && target.includes('#Intent;') && target.includes('scheme=upi')) {
-          try {
-            window.location.href = target;
-          } catch (err) {
-            /* No handler — the QR in the iframe remains the fallback path. */
-          }
+      // blocked". It cannot be delegated through postMessage either — transient
+      // user activation is not carried across messages, so a navigation started
+      // from this handler is silently dropped. The tap has to happen here, in the
+      // top-level document, so the frame just reports its URI and we render the
+      // button ourselves.
+      if (event === 'youpi.upi_ready') {
+        const upiUri = typeof e.data.upiUri === 'string' ? e.data.upiUri.trim() : '';
+        if (/^upi:\/\/pay\?/i.test(upiUri)) {
+          const label = typeof e.data.amountLabel === 'string' ? e.data.amountLabel : '';
+          this._renderUpiLaunch(upiUri, label);
         }
         return;
       }
@@ -696,6 +757,32 @@
           flex: 1;
           background: #ffffff;
           touch-action: auto !important;
+        }
+        /* UPI app hand-off footer. Rendered here, in the host document, because
+           Chrome only launches an external app from a tap that happens in the
+           top-level frame (see _renderUpiLaunch). */
+        .youpi-upi-launch-bar {
+          display: none;
+          flex-shrink: 0;
+          padding: 10px 12px;
+          border-top: 1px solid #e2e8f0;
+          background: #ffffff;
+        }
+        .youpi-upi-launch-btn {
+          width: 100%;
+          min-height: 46px;
+          border: none;
+          border-radius: 10px;
+          background: #0b63e5;
+          color: #ffffff;
+          font-family: inherit;
+          font-size: 15px;
+          font-weight: 700;
+          cursor: pointer;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .youpi-upi-launch-btn:active {
+          filter: brightness(0.94);
         }
         .youpi-checkout-close-btn {
           position: absolute;

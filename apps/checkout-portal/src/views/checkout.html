@@ -5674,6 +5674,10 @@
       return typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
     }
 
+    // Last upiUri handed to the parent SDK, so repeated state renders don't
+    // re-post the same message.
+    let lastReportedUpiUri = null;
+
     /**
      * Rewrites the QR's upi://pay URI into the intent:// form Chrome for Android
      * requires (developer.chrome.com/docs/android/intents).
@@ -5701,18 +5705,43 @@
       const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
       const usable = /^upi:\/\/pay\?/i.test(uri) && canHandOffToUpiApp();
 
-      btn.classList.toggle('is-available', usable);
-
+      const hint = document.getElementById('tapHintStep2');
       const card = btn.closest('.ypg-qr-card-container');
+      const amount = state && state.amount ? String(state.amount).trim() : '';
+      const embedded = window.self !== window.top;
+
+      // Inside the host's checkout modal this frame must not offer the button:
+      // Chrome blocks an intent:// launch started here, and the gesture cannot be
+      // forwarded to the parent (activation is not carried across postMessage).
+      // Report the URI instead and let the SDK render the button in the modal
+      // chrome, which is the top-level document.
+      if (embedded) {
+        btn.classList.remove('is-available');
+        if (card) card.classList.remove('has-open-upi');
+        if (hint) hint.style.display = 'none';
+
+        if (usable && uri !== lastReportedUpiUri) {
+          lastReportedUpiUri = uri;
+          try {
+            window.parent.postMessage({
+              event: 'youpi.upi_ready',
+              upiUri: uri,
+              amountLabel: amount ? `₹${amount}` : ''
+            }, '*');
+          } catch (err) {
+            /* Parent unreachable — the QR stays available as the fallback. */
+          }
+        }
+        return;
+      }
+
+      btn.classList.toggle('is-available', usable);
       if (card) card.classList.toggle('has-open-upi', usable);
 
       // Only promise the tap in the instructions when the button is really there.
-      const hint = document.getElementById('tapHintStep2');
       if (hint) hint.style.display = usable ? 'inline' : 'none';
 
       if (!usable) return;
-
-      const amount = state && state.amount ? String(state.amount).trim() : '';
       btn.textContent = amount ? `Pay ₹${amount} in UPI App` : 'Pay in UPI App';
     }
 
@@ -5721,29 +5750,14 @@
       if (!/^upi:\/\/pay\?/i.test(uri)) return;
       if (!canHandOffToUpiApp()) return;
 
-      const embedded = window.self !== window.top;
-      // When embedded, the page the user must come back to is the host's, not
-      // this frame's, so point the fallback at the referrer.
-      const fallbackUrl = embedded ? (document.referrer || '') : window.location.href;
-      const intentUrl = buildAndroidUpiIntent(uri, fallbackUrl);
-
-      // Chrome blocks an intent:// navigation started inside an iframe — it
-      // renders "This content is blocked", which is what the host checkout
-      // modal hit. Only the top-level document may launch the app, so hand the
-      // URI to the SDK (parent) and let it navigate.
-      if (embedded) {
-        try {
-          window.parent.postMessage({ event: 'youpi.open_upi_app', intentUrl }, '*');
-          return;
-        } catch (err) {
-          /* fall through to a direct attempt below */
-        }
-      }
+      // Embedded: the SDK owns the launch (see syncOpenUpiAppButton). Navigating
+      // from inside this frame is blocked by Chrome, so never try it here.
+      if (window.self !== window.top) return;
 
       try {
         // Must stay inside the click handler: Chrome only launches an external
         // app for an intent:// URI when a user gesture is present.
-        window.location.href = intentUrl;
+        window.location.href = buildAndroidUpiIntent(uri, window.location.href);
       } catch (err) {
         /* Chooser unavailable — the QR remains as the fallback path. */
       }
