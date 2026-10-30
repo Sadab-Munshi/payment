@@ -561,61 +561,6 @@
       line-height: 1.3;
     }
 
-    /* Mobile-only "Pay in UPI App" deep link.
-       A QR displayed on the phone that is paying is unscannable, so on small
-       screens we hand the identical upi://pay URI to the OS app chooser. The
-       QR stays visible above it as a fallback for second-device users.
-       Hidden on desktop: no desktop browser registers the upi:// scheme. */
-    .ypg-open-upi-btn {
-      display: none;
-      width: 100%;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      min-height: 46px;
-      padding: 11px 16px;
-      border: none;
-      border-radius: 12px;
-      background: var(--ypg-blue, #2563eb);
-      color: #ffffff;
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 700;
-      line-height: 1.2;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-      transition: filter 120ms ease, transform 80ms ease;
-    }
-
-    .ypg-open-upi-btn:active {
-      transform: scale(0.99);
-      filter: brightness(0.94);
-    }
-
-    .ypg-open-upi-btn:focus-visible {
-      outline: 2px solid var(--ypg-blue-dark, #1d4ed8);
-      outline-offset: 2px;
-    }
-
-    @media (max-width: 600px) {
-      .ypg-open-upi-btn.is-available {
-        display: inline-flex;
-      }
-
-      /* Give the button the full card width by stacking the QR above the text.
-         Applied only when the button is actually usable (class set from JS),
-         so the existing mobile QR layout is untouched if no upiUri is present. */
-      .ypg-qr-card-container.has-open-upi {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 14px;
-      }
-
-      .ypg-qr-card-container.has-open-upi .ypg-qr-image-box {
-        align-self: center;
-      }
-    }
-
     /* UPI Brand Logos */
     .ypg-upi-logos-row {
       display: flex;
@@ -3575,12 +3520,6 @@
                   <div class="ypg-qr-details-col">
                     <div class="ypg-qr-prompt-title">Scan the QR using any UPI App</div>
 
-                    <!-- Single-device path: opens the OS UPI app chooser with the
-                         same upi://pay URI the QR encodes. Shown only on phones. -->
-                    <button type="button" id="openUpiAppBtn" class="ypg-open-upi-btn" onclick="openUpiApp()">
-                      Pay in UPI App
-                    </button>
-
                     <!-- Brand Logos Row (Zero Fake Offers) -->
                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:3px 0 6px 0;">
                       <div class="ypg-upi-logos-row">
@@ -3614,7 +3553,7 @@
                   </div>
                   <div class="ypg-instruction-step">
                     <div class="ypg-step-num">2</div>
-                    <div><span>Scan the QR code above</span><span id="tapHintStep2" style="display:none">, or tap <strong>Pay in UPI App</strong> on this phone</span><span>, then complete the payment of <strong>₹{{AMOUNT}}</strong>.</span></div>
+                    <div>Scan the QR code above and complete the payment of <strong>₹{{AMOUNT}}</strong>.</div>
                   </div>
                   <div class="ypg-instruction-step">
                     <div class="ypg-step-num">3</div>
@@ -5652,145 +5591,8 @@
       container.style.display = html ? 'flex' : 'none';
     }
 
-    /**
-     * Mobile "Pay in UPI App" hand-off.
-     *
-     * The QR is unscannable when the phone displaying it is the phone paying, so
-     * on small screens we hand the OS the *identical* upi://pay URI the QR
-     * encodes. Reusing that exact string matters: the `tn` note and amount are
-     * what the bank SMS / Gmail observer matches on, so a regenerated or
-     * re-encoded URI risks payments that arrive but never get attributed.
-     */
-
-    /**
-     * Android browsers only.
-     *
-     * Chrome for Android will not navigate a page to a bare upi:// URI — it
-     * renders ERR_UNKNOWN_URL_SCHEME instead of opening the app. The supported
-     * route is the intent: syntax below. iOS Safari has no handler for the
-     * generic upi:// scheme at all, so there is nothing honest to offer there.
-     */
-    function canHandOffToUpiApp() {
-      return typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
-    }
-
-    // Last upiUri handed to the parent SDK, so repeated state renders don't
-    // re-post the same message.
-    let lastReportedUpiUri = null;
-
-    /**
-     * Tells the parent SDK which URI to launch.
-     *
-     * The URI is sent as data only: this frame cannot launch a UPI app (Chrome
-     * blocks intent:// from a subframe) and the gesture cannot be forwarded
-     * either. The SDK renders the button in the top-level document and launches
-     * from its own click handler.
-     */
-    function reportUpiUri(force) {
-      const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
-      if (!/^upi:\/\/pay\?/i.test(uri)) return;
-      if (!canHandOffToUpiApp()) return;
-      if (!force && uri === lastReportedUpiUri) return;
-      lastReportedUpiUri = uri;
-
-      const amount = state && state.amount ? String(state.amount).trim() : '';
-      try {
-        window.parent.postMessage({
-          event: 'youpi.upi_ready',
-          upiUri: uri,
-          amountLabel: amount ? `\u20b9${amount}` : ''
-        }, '*');
-      } catch (err) {
-        /* Parent unreachable — the QR stays available as the fallback. */
-      }
-    }
-
-    // The parent asks for the URI once the modal is live. Answering the request
-    // as well as pushing after each render means a missed message can't leave
-    // the payer without a button.
-    window.addEventListener('message', function (e) {
-      if (!e.data || e.data.event !== 'youpi.request_upi_uri') return;
-      if (window.self === window.top) return;
-      reportUpiUri(true);
-    });
-
-    /**
-     * Rewrites the QR's upi://pay URI into the intent:// form Chrome for Android
-     * requires (developer.chrome.com/docs/android/intents).
-     *
-     * The package is deliberately omitted: Android resolves every installed app
-     * that handles upi://pay and shows its own chooser. That is both the NPCI
-     * "pay by any UPI app" requirement and why no app is privileged here.
-     * Without browser_fallback_url a missing UPI app would strand the user on a
-     * Play Store page, so the checkout URL is passed as the fallback.
-     */
-    function buildAndroidUpiIntent(upiUri, fallbackUrl) {
-      const body = upiUri.replace(/^upi:\/\//i, '').split('#')[0];
-      const extras = ['Intent', 'scheme=upi', 'action=android.intent.action.VIEW'];
-      if (fallbackUrl) {
-        extras.push('S.browser_fallback_url=' + encodeURIComponent(fallbackUrl));
-      }
-      extras.push('end');
-      return 'intent://' + body + '#' + extras.join(';');
-    }
-
-    function syncOpenUpiAppButton() {
-      const btn = document.getElementById('openUpiAppBtn');
-      if (!btn) return;
-
-      const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
-      const usable = /^upi:\/\/pay\?/i.test(uri) && canHandOffToUpiApp();
-
-      const hint = document.getElementById('tapHintStep2');
-      const card = btn.closest('.ypg-qr-card-container');
-      const amount = state && state.amount ? String(state.amount).trim() : '';
-      const embedded = window.self !== window.top;
-
-      // Inside the host's checkout modal this frame must not offer the button:
-      // Chrome blocks an intent:// launch started here, and the gesture cannot be
-      // forwarded to the parent (activation is not carried across postMessage).
-      // Report the URI instead and let the SDK render the button in the modal
-      // chrome, which is the top-level document.
-      if (embedded) {
-        btn.classList.remove('is-available');
-        if (card) card.classList.remove('has-open-upi');
-        if (hint) hint.style.display = 'none';
-
-        if (usable) reportUpiUri(false);
-        return;
-      }
-
-      btn.classList.toggle('is-available', usable);
-      if (card) card.classList.toggle('has-open-upi', usable);
-
-      // Only promise the tap in the instructions when the button is really there.
-      if (hint) hint.style.display = usable ? 'inline' : 'none';
-
-      if (!usable) return;
-      btn.textContent = amount ? `Pay ₹${amount} in UPI App` : 'Pay in UPI App';
-    }
-
-    function openUpiApp() {
-      const uri = state && typeof state.upiUri === 'string' ? state.upiUri.trim() : '';
-      if (!/^upi:\/\/pay\?/i.test(uri)) return;
-      if (!canHandOffToUpiApp()) return;
-
-      // Embedded: the SDK owns the launch (see syncOpenUpiAppButton). Navigating
-      // from inside this frame is blocked by Chrome, so never try it here.
-      if (window.self !== window.top) return;
-
-      try {
-        // Must stay inside the click handler: Chrome only launches an external
-        // app for an intent:// URI when a user gesture is present.
-        window.location.href = buildAndroidUpiIntent(uri, window.location.href);
-      } catch (err) {
-        /* Chooser unavailable — the QR remains as the fallback path. */
-      }
-    }
-
     function renderState(data) {
       state = data;
-      syncOpenUpiAppButton();
       const b = data.branding || {};
       const appName = b.appName || 'YouPI PG';
       const merchantName = data.merchantName || 'Merchant Checkout';
